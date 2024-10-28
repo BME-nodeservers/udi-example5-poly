@@ -22,32 +22,41 @@ every short poll interval.
 '''
 class testNode(udi_interface.Node):
     id = 'test'
-    def __init__(self, poly, primary, address, name):
-        super().__init(poly, primary, address, name)
+    def __init__(self, poly, primary, address, name, init):
         self.poly = poly
         self.name = name
         self.address = address
-        self.counter = 0
+        super(testNode, self).__init__(poly, primary, address, name)
+
+        self.counter = init
 
         poly.subscribe(poly.POLL, self.poll)
-        poly.subscribe(poly.NSCUSTOM, self.loadConfig)
+        poly.subscribe(poly.CUSTOMNS, self.loadConfig)
 
-        Config = Custom(polyglot, address)
+        # create a custom data key using our node address
+        self.Config = Custom(polyglot, address)
 
 
     def poll(self, pollType):
-        LOGGER.error('In poll for node {}'.format(self.name))
-        if polltype == 'shortPoll':
+        if pollType == 'shortPoll':
             self.counter += 1
-            self.setDriver(GV0, self.counter, True, True)
+            self.setDriver('GV0', self.counter, True, True)
 
-            # TODO: Save current count
-            Config.counter = self.counter
+            # Save current count
+            self.Config.counter = self.counter
 
-    # When we get this event, we pull the saved counter value
-    # and restore it.
-    def loadConfig(self, data):
-        LOGGER.error('NSCUSTOM data looks like {}'.format(data))
+    # The CUSTOMNS event is sent for every custom key as it is a global
+    # event type.  This means that we need to skip any events that 
+    # have a key that isn't ours.   Since we only create one custom
+    # key and that key is based on our address, it's easy to do that.
+    def loadConfig(self, key, data):
+        # Initialize the counter to the last saved value.
+        if key == self.address:  # if our key
+            if 'counter' in data: # if there's actual data saved under this key
+                # initialize the counter to the saved value and update the driver.
+                LOGGER.info('Initializing {}\'s counter to {}'.format(self.name, data['counter']))
+                self.counter = data['counter']
+                self.setDriver('GV0', self.counter, True, True)
 
     drivers = [
             {'driver': 'ST', 'value': 1, 'uom': 2},
@@ -73,6 +82,9 @@ def stop():
         nodes[n].setDriver('ST', 0, True, True)
     polyglot.stop()
 
+# Plug-in configuration data.  We don't actually need any of this info
+# for this plug-in.  But we pull the current assigned log level and log
+# just to show how we can access this.
 def config(data):
     loglevel = data['logLevel']
     loglist = data['logLevelList']
@@ -99,10 +111,16 @@ if __name__ == "__main__":
         '''
         Here we create the device node.  In a real node server we may
         want to try and discover the device or devices and create nodes
-        based on what we find.  Here, we simply create our node and wait
-        for the add to complete.
+        based on what we find.  Here, we simply create our nodes.
+
+        The first node gets it's counter initialized to zero when it is first created.
+        The second node gets it's counter initialized to 100 when it is first created.
         '''
-        node = testNode(polyglot, 'my_address', 'my_address', 'Counter')
+        LOGGER.info('Creating nodes...')
+        node = testNode(polyglot, 'pi_address_01', 'pi_address_01', 'Counter-1', 0)
+        polyglot.addNode(node)
+
+        node = testNode(polyglot, 'pi_address_02', 'pi_address_02', 'Counter-2', 100)
         polyglot.addNode(node)
 
         # Just sit and wait for events
